@@ -165,6 +165,11 @@
 
 ;--------------------- the primary diff function -------------------
 
+(define get-cost
+  (lambda (changes)
+    (apply + (map Change-cost changes))))
+
+
 ;; global 2-D hash for storing known diffs
 (define *diff-hash* (make-hasheq))
 
@@ -172,33 +177,33 @@
   (lambda (node1 node2)
 
     (define memo
-      (lambda (v1 v2)
+      (lambda (v)
         (and (> (node-size node1) *memo-node-size*)
              (> (node-size node2) *memo-node-size*)
-             (hash-put! *diff-hash* node1 node2 (cons v1 v2)))
-        (values v1 v2)))
+             (hash-put! *diff-hash* node1 node2 v))
+        v))
 
     (define try-extract
-      (lambda (changes cost)
-        (cond
-         [(or (not *moving*)
-              (zero? cost))
-          (memo changes cost)]
-         [else
-          (letv ([(m c) (diff-extract node1 node2)])
-            (cond
-             [(not m)
-              (memo changes cost)]
-             [else
-              (memo m c)]))])))
+      (lambda (changes)
+        (let ([cost (get-cost changes)])
+         (cond
+          [(or (not *moving*)
+               (zero? cost))
+           (memo changes)]
+          [else
+           (let ([m (diff-extract node1 node2)])
+             (cond
+              [(not m)
+               (memo changes)]
+              [else
+               (memo m)]))]))))
 
 
     (diff-progress 1) ;; progress bar
 
     (cond
      [(hash-get *diff-hash* node1 node2)
-      => (lambda (cached)
-           (values (car cached) (cdr cached)))]
+      => (lambda (x) x)]
      [(and (character? node1) (character? node2))
       (diff-string (char->string (Node-elts node1))
                    (char->string (Node-elts node2))
@@ -211,8 +216,8 @@
       (diff-string (Node-elts node1) (Node-elts node2) node1 node2)]
      [(and (Node? node1) (Node? node2)
            (eq? (get-type node1) (get-type node2)))
-      (letv ([(m c) (diff-list (Node-elts node1) (Node-elts node2))])
-        (try-extract m c))]
+      (let ([m (diff-list (Node-elts node1) (Node-elts node2))])
+        (try-extract m))]
      [(and (pair? node1) (not (pair? node2)))
       (diff-list node1 (list node2))]
      [(and (not (pair? node1)) (pair? node2))
@@ -220,8 +225,8 @@
      [(and (pair? node1) (pair? node2))
       (diff-list node1 node2)]
      [else
-      (letv ([(m c) (total node1 node2)])
-        (try-extract m c))])))
+      (let ([m (total node1 node2)])
+        (try-extract m))])))
 
 
 
@@ -231,7 +236,7 @@
   (lambda (string1 string2 node1 node2)
     (cond
      [(string=? string1 string2)
-      (values (mov node1 node2 0) 0)]
+      (mov node1 node2 0)]
      [else
       (total node1 node2)])))
 
@@ -247,41 +252,40 @@
   (lambda (table ls1 ls2)
 
     (define memo
-      (lambda (v1 v2)
-        (hash-put! table ls1 ls2 (cons v1 v2))
-        (values v1 v2)))
+      (lambda (v)
+        (hash-put! table ls1 ls2 v)
+        v))
 
     (define guess
       (lambda (ls1  ls2)
-        (letv ([(m0 c0) (diff-node (car ls1) (car ls2))]
-               [(m1 c1) (diff-list1 table (cdr ls1) (cdr ls2))])
+        (let* ([m0 (diff-node (car ls1) (car ls2))]
+               [m1 (diff-list1 table (cdr ls1) (cdr ls2))]
+               [c0 (get-cost m0)]
+               [c1 (get-cost m1)])
           (cond
            [(or (zero? c0)
                 (same-def? (car ls1) (car ls2)))
-            (memo (append m0 m1) (+ c0 c1))]
+            (memo (append m0 m1))]
            [else
-            (letv ([(m2 c2) (diff-list1 table (cdr ls1) ls2 )]
-                   [(m3 c3) (diff-list1 table ls1 (cdr ls2))]
-                   [cost2 (+ c2 (node-size (car ls1)))]
-                   [cost3 (+ c3 (node-size (car ls2)))])
+            (let* ([m2 (diff-list1 table (cdr ls1) ls2 )]
+                   [m3 (diff-list1 table ls1 (cdr ls2))]
+                   [cost2 (+ (get-cost m2) (node-size (car ls1)))]
+                   [cost3 (+ (get-cost m3) (node-size (car ls2)))])
               (cond
                [(<= cost2 cost3)
-                (memo (append (del (car ls1)) m2) cost2)]
+                (memo (append (del (car ls1)) m2))]
                [else
-                (memo (append (ins (car ls2)) m3) cost3)]))]))))
+                (memo (append (ins (car ls2)) m3))]))]))))
 
     (cond
      [(hash-get table ls1 ls2)
-      => (lambda (cached)
-           (values (car cached) (cdr cached)))]
+      => (lambda (x) x)]
      [(and (null? ls1) (null? ls2))
-      (values '() 0)]
+      '()]
      [(null? ls1)
-      (let ([changes (apply append (map ins ls2))])
-        (values changes (node-size ls2)))]
+      (apply append (map ins ls2))]
      [(null? ls2)
-      (let ([changes (apply append (map del ls1))])
-        (values changes (node-size ls1)))]
+      (apply append (map del ls1))]
      [else
       (guess ls1 ls2)])))
 
@@ -303,43 +307,38 @@
   (lambda (node1 node2)
     (cond
      [(and (Node? node1) (Node? node2)
-           (or (same-ctx? node1 node2)
-               (and (big-node? node1)
-                    (big-node? node2))))
+           (and (big-node? node1)
+                (big-node? node2)))
       (cond
        [(<= (node-size node1) (node-size node2))
         (let loop ([elts2 (Node-elts node2)])
           (cond
            [(pair? elts2)
-            (letv ([(m0 c0) (diff-node node1 (car elts2))])
+            (let ([m0 (diff-node node1 (car elts2))])
               (cond
                [(or (same-def? node1 (car elts2))
-                    (and (zero? c0)
-                         (or (big-node? node1)
-                             (same-ctx? node1 (car elts2)))))
-                (let ([frame (extract-frame node2 (car elts2) ins)])
-                  (values (append m0 frame) c0))]
+                    (and (zero? (get-cost m0))
+                         (big-node? node1)))
+                (let ([frame (extract-frame node2 (car elts2) ins0)])
+                  (append m0 frame))]
                [else
                 (loop (cdr elts2))]))]
-           [else
-            (values #f #f)]))]
+           [else #f]))]
        [else
         (let loop ([elts1 (Node-elts node1)])
           (cond
            [(pair? elts1)
-            (letv ([(m0 c0) (diff-node (car elts1) node2)])
+            (let ([m0 (diff-node (car elts1) node2)])
               (cond
                [(or (same-def? (car elts1) node2)
-                    (and (zero? c0)
-                         (or (big-node? node2)
-                             (same-ctx? (car elts1) node2))))
-                (let ([frame (extract-frame node1 (car elts1) del)])
-                  (values (append m0 frame) c0))]
+                    (and (zero? (get-cost m0))
+                         (big-node? node2)))
+                (let ([frame (extract-frame node1 (car elts1) del0)])
+                  (append m0 frame))]
                [else
                 (loop (cdr elts1))]))]
-           [else
-            (values #f #f)]))])]
-     [else (values #f #f)])))
+           [else #f]))])]
+     [else #f])))
 
 
 
@@ -387,12 +386,12 @@
     (let loop ([workset changes]
                [finished '()])
       (diff-progress "|")
-      (letv ([dels (filter (predand del? big-change?) workset)]
+      (let* ([dels (filter (predand del? big-change?) workset)]
              [adds (filter (predand ins? big-change?) workset)]
              [rest (set- workset (append dels adds))]
              [ls1 (sort (map Change-old dels) node-sort-fn)]
              [ls2 (sort (map Change-new adds) node-sort-fn)]
-             [(m c) (diff-list ls1 ls2)]
+             [m (diff-list ls1 ls2)]
              [new-moves (filter mov? m)])
         (cond
          [(null? new-moves)
@@ -430,11 +429,12 @@
 
       (printf "[diffing]~n")
 
-      (letv ([(changes cost) (diff-node node1 node2)])
+      (let* ([changes (diff-node node1 node2)]
+             [cost (get-cost changes)])
         (diff-progress 'reset)
         (printf "~n[moving]~n")
-        (letv ([changes (find-moves changes)]
-               [end (current-seconds)])
+        (let ([changes (find-moves changes)]
+              [end (current-seconds)])
           (printf "~n[finished] ~a seconds~n" (- end start))
           (printf "~n[info] count: ~a~n" (diff-progress 'get))
           (cleanup)

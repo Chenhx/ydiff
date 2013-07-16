@@ -165,27 +165,29 @@
 ;----------------- utils for creating changes ----------------
 (define ins
   (lambda (node)
-    (let ([size (node-size node)])
-      (list (Change #f node size 'ins)))))
+    (list (Change #f node (node-size node) 'ins))))
 
 (define del
   (lambda (node)
-    (let ([size (node-size node)])
-      (list (Change node #f size 'del)))))
+    (list (Change node #f (node-size node) 'del))))
 
 (define mov
   (lambda (node1 node2 cost)
     (list (Change node1 node2 cost 'mov))))
 
+(define ins0
+  (lambda (node)
+    (list (Change #f node 0 'ins))))
+
+(define del0
+  (lambda (node)
+    (list (Change node #f 0 'del))))
 
 ;; create a "total change"
 ;; (delete node1 completely and then insert node2)
 (define total
   (lambda (node1 node2)
-    (let ([size1 (node-size node1)]
-          [size2 (node-size node2)])
-      (values (append (del node1) (ins node2))
-              (+ size1 size2)))))
+    (append (del node1) (ins node2))))
 
 
 

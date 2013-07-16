@@ -42,10 +42,9 @@ PATH.
 ### Caveats
 
 
-1. The HTML file needs the support files `nav.js` and `diff.css` to be
-   present in the same directory. You must copy those files to the
-   directory where you ran the commands. This is not a good user
-   experience design and may be improved later.
+The HTML file needs the support files `nav.js` and `diff.css` to be present in
+the same directory. You must copy those files to the directory where you ran the
+commands. This is not a good user experience design and may be improved later.
 
 
 
